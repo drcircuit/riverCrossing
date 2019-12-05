@@ -2,7 +2,7 @@
 (function () {
     var scr;
     let background = "./img/bekken.png";
-    let boys, girls, mom, dad, uncle, dog;
+    let boys, girls, mom, dad, uncle, dog, sign;
     let spriteScale = 0.07;
     let baseLine = 400;
     boys = [];
@@ -10,6 +10,7 @@
     let onFlake = [];
     let onOtherSide = [];
     let onBank = [];
+
     let sprites = [
         {
             name: "Fattern",
@@ -50,12 +51,16 @@
             name: "Killer",
             role: "dog",
             img: "./img/dog.png"
+        },
+        {
+            name: "Sign",
+            role: "sign",
+            img: "./img/sign.png"
         }
     ];
 
     function setupMouse() {
         document.getElementById("space").addEventListener("mousedown", (e) => {
-            console.log(e);
             let hit = false;
             onOtherSide.forEach(s => {
                 let a = getActiveArea(s);
@@ -83,7 +88,6 @@
             });
             onBank.forEach(s => {
                 let a = getActiveArea(s);
-                console.log(s);
                 if (spriteClicked(dcl.vector(e.layerX, e.layerY), a, s.img) && !hit) {
                     console.log("clicked " + s.name);
                     hit = true;
@@ -94,12 +98,22 @@
                 }
                 dcl.circle(e.layerX, e.layerY, 5);
             });
+            if (spriteClicked(dcl.vector(e.layerX, e.layerY), getActiveArea(sign), sign.img)) {
+                if (onFlake.length > 0) {
+                    let s = onFlake.filter(p => canMove(p, true));
+                    s.forEach(p => {
+                        console.log("moving to other side");
+                        move(p, true);
+                        console.log(onOtherSide);
+                    })
+                }
+            }
         });
         document.getElementById("space").addEventListener("mouseup", (e) => {
             draw();
         });
     }
-    function move(s) {
+    function move(s, toOtherSide) {
         let currentPlace = getCurrentPlace(s);
         let bbox = getActiveArea(s);
         if (currentPlace === "bank") {
@@ -108,17 +122,35 @@
             if (onFlake.length > 0) {
                 let bbox2 = getActiveArea(onFlake[0]);
                 offset = bbox2.w;
-                console.log(bbox2);
             }
             s.pos = dcl.vector(301 + offset, 435 - bbox.h + onFlake.length * 20);
             onFlake.push(s);
         }
-        if (currentPlace === "flake") {
-            console.log(currentPlace);
+        if (currentPlace === "otherSide") {
+            onOtherSide.splice(onOtherSide.indexOf(s), 1);
+            let offset = 0;
+            if (onFlake.length > 0) {
+                let bbox2 = getActiveArea(onFlake[0]);
+                offset = bbox2.w;
+            }
+            s.pos = dcl.vector(301 + offset, 435 - bbox.h + onFlake.length * 20);
+            onFlake.push(s);
+        }
+        if (currentPlace === "flake" && !toOtherSide) {
             onFlake.splice(onFlake.indexOf(s), 1);
             s.pos = s.bankPos;
             onBank.push(s);
         }
+        if (currentPlace === "flake" && toOtherSide) {
+            onFlake.splice(onFlake.indexOf(s), 1);
+            let spacing = 301;
+            onOtherSide.forEach(p => {
+                spacing += p.width * spriteScale;
+            });
+            s.pos = dcl.vector(spacing, 535 - bbox.h / 2 + onOtherSide.length * 20);
+            onOtherSide.push(s);
+        }
+
     }
     function getCurrentPlace(s) {
         if (onBank.indexOf(s) > -1) {
@@ -131,17 +163,51 @@
             return "otherSide";
         }
     }
-    function canMove(s) {
+    function canMove(s, toOtherSide) {
         let currentPlace = getCurrentPlace(s);
-        if (currentPlace !== "flake" && onFlake.length < 2) {
+        if (currentPlace === "bank" && onFlake.length < 2) {
             return true;
         }
-        if (currentPlace === "flake") {
+        if (currentPlace === "otherSide" && onFlake.length < 2) {
             return true;
         }
+        if (currentPlace === "flake" && !toOtherSide) {
+            
+            console.log(getCurrentPlace(s));
+            let constrainedOnBank = onBank.filter(b => s.constraint.ifWhoIsPresent.indexOf(b.role) > -1);
+            let needsToStayWithOnBank = onBank.filter(b => s.constraint.needsToStayWith.indexOf(b.role) > -1);
+            if (constrainedOnBank.length > 0 && needsToStayWithOnBank > 0) {
+                console.log(constrainedOnBank, needsToStayWithOnBank);
+                return false;
+            }
+            if(onFlake.length === 1){
+                if((["mom", "dad"]).indexOf(s.role) > -1){
+                    return true;
+                }
+            }
+            return false;
+
+        }
+        if (currentPlace === "flake" && toOtherSide) {
+            let needsToStayWithOnOtherSide = onOtherSide.filter(b => s.constraint.needsToStayWith.indexOf(b.role) > -1);
+            let constrainedOnOtherSide = onOtherSide.filter(b => s.constraint.ifWhoIsPresent.indexOf(b.role) > -1);
+            if (constrainedOnOtherSide.length > 0 && needsToStayWithOnOtherSide.length > 0) {
+                console.log(constrainedOnOtherSide, needsToStayWithOnOtherSide);
+                return false;
+            }
+            if (onFlake.length === 1 && (["boy", "girl", "dog", "uncle"]).indexOf(s.role) < 0) {
+                return true;
+            }
+            if (onFlake.length === 2) {
+                let idx = onFlake.indexOf(s);
+                let odx = onFlake.length - 1 - idx;
+                return s.movesWith.indexOf(onFlake[odx].role) > -1;
+            }
+        }
+        return false;
     }
 
-    function isTransparent(x, y, img) {        
+    function isTransparent(x, y, img) {
         let temp = document.createElement("canvas");
         let ctx = temp.getContext("2d");
         let w = img.width * spriteScale;
@@ -168,6 +234,7 @@
         drawSprites(onBank);
         drawSprites(onFlake);
         drawSprites(onOtherSide);
+        drawSprites([sign]);
 
     }
     function drawSprites(sprites) {
@@ -237,6 +304,16 @@
         sprites.forEach((s) => {
             let img = new Image();
             img.addEventListener("load", () => {
+                if (s.role === "sign") {
+                    sign = {
+                        pos: dcl.vector(0, 430),
+                        width: img.width,
+                        height: img.height,
+                        img: img,
+                        role: "sign",
+                        name: s.name
+                    };
+                }
                 if (s.role === "dad") {
                     dad = {
                         pos: dcl.vector(0, 0),
